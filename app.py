@@ -1,11 +1,11 @@
 import streamlit as st
 import pandas as pd
 import re
-from io import BytesIO
 from dateutil import parser
+from io import BytesIO
 import chardet
 
-# === Classifier functions ===
+# === Classifier Functions ===
 def classify_message(msg):
     categories = {
         "rent": ["for rent", "looking for rent", "available for rent", "rent price", "للإيجار"],
@@ -37,40 +37,52 @@ def extract_date(msg):
     except:
         return "no date"
 
-# === Streamlit UI ===
-st.title("🏘️ WhatsApp Real Estate Classifier - Based on Actual Format")
+# === Streamlit App UI ===
+st.set_page_config(page_title="WhatsApp Real Estate Classifier", layout="wide")
+st.title("🏘️ WhatsApp Real Estate Classifier")
 
 uploaded_file = st.file_uploader("📄 Upload WhatsApp Chat (.txt)", type="txt")
 
 if uploaded_file:
     raw = uploaded_file.read()
     enc = chardet.detect(raw)['encoding']
-    text = raw.decode(enc, errors='ignore')
+    text = raw.decode(enc, errors='ignore').replace("â€¯", " ").replace("  ", " ")
 
-    # Adjusted for: DD/MM/YYYY, H:MM am/pm - Sender: Message
-    pattern = re.compile(r"^(\d{1,2}/\d{1,2}/\d{4}),\s*(\d{1,2}:\d{2})[\u202f\s]?(am|pm)?\s*-\s*(.*?):\s(.+)$", re.IGNORECASE)
+    pattern = re.compile(
+        r"^(\d{1,2}/\d{1,2}/\d{4})[, ]\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*(am|pm)?\s*[-–—]\s*(.*?):\s(.+)$",
+        re.IGNORECASE
+    )
 
     messages = []
     for line in text.splitlines():
         match = pattern.match(line.strip())
         if match:
             date, time, ampm, sender, msg = match.groups()
-            timestamp = f"{date} {time} {ampm or ''}"
-            messages.append((timestamp.strip(), sender.strip(), msg.strip()))
+            try:
+                timestamp = parser.parse(f"{date} {time} {ampm or ''}", fuzzy=True, dayfirst=True)
+            except:
+                continue
+            messages.append((str(timestamp), sender.strip(), msg.strip()))
 
     if not messages:
-        st.warning("⚠️ No messages matched the expected format: 'DD/MM/YYYY, HH:MM am/pm - Sender: Message'")
+        st.warning("⚠️ No messages matched the expected format.")
     else:
         df = pd.DataFrame(messages, columns=["timestamp", "sender", "message"])
-        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", dayfirst=True)
+        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
         df["date_only"] = df["timestamp"].dt.date
         df["category"] = df["message"].apply(classify_message)
         df["unit_type"] = df["message"].apply(extract_unit_type)
         df["date_mentioned"] = df["message"].apply(extract_date)
 
-        st.success("✅ Chat processed successfully!")
-        st.dataframe(df.head(10))
+        st.success("✅ Chat parsed successfully!")
+        st.dataframe(df.head(30), use_container_width=True)
 
+        # Excel download
         output = BytesIO()
         df.to_excel(output, index=False, engine='openpyxl')
-        st.download_button("📥 Download Excel", data=output.getvalue(), file_name="classified_messages.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        st.download_button(
+            label="📥 Download Classified Excel",
+            data=output.getvalue(),
+            file_name="classified_messages.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
