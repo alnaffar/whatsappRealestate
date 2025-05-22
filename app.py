@@ -56,23 +56,16 @@ def extract_unit_type(message):
     return "unknown"
 
 def extract_date(message):
-    date_patterns = [
-        r"\\b\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4}\\b",
-        r"\\b\\d{1,2}(st|nd|rd|th)?\\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[,]?\\s+\\d{2,4}\\b",
-        r"\\b(January|February|March|April|May|June|July|August|September|October|November|December)\\s+\\d{1,2},?\\s+\\d{2,4}\\b",
-        r"\\b\\d{1,2}\\s+(يناير|فبراير|مارس|أبريل|ابريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر)\\b"
-    ]
-    for pattern in date_patterns:
-        match = re.search(pattern, message, re.IGNORECASE)
-        if match:
-            try:
-                return str(parser.parse(match.group(0), fuzzy=True).date())
-            except:
-                continue
+    match = re.search(r"\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4}", message)
+    if match:
+        try:
+            return str(parser.parse(match.group(0), dayfirst=True).date())
+        except:
+            return "no date"
     return "no date"
 
 # === Streamlit UI ===
-st.title("🏘️ WhatsApp Real Estate Classifier (Arabic & English Support)")
+st.title("🏘️ WhatsApp Real Estate Classifier (Android + iPhone Support)")
 
 uploaded_file = st.file_uploader("📄 Upload WhatsApp Chat (.txt)", type="txt")
 
@@ -81,21 +74,17 @@ if uploaded_file:
     encoding_guess = chardet.detect(raw_bytes)
     chat_text = raw_bytes.decode(encoding_guess["encoding"], errors="ignore")
 
-    # Supported formats:
-    pattern1 = re.compile(r"(\\d{1,2}/\\d{1,2}/\\d{4}), (\\d{1,2}:\\d{2})[\\u202f\\s]?(am|pm)? - (.*?): (.+)", re.IGNORECASE)
-    pattern2 = re.compile(r"\\[(\\d{1,2}/\\d{1,2}/\\d{4}) (\\d{2}:\\d{2}:\\d{2})\\] (.*?): (.+)")
+    pattern = re.compile(
+        r"^(\\d{1,2}/\\d{1,2}/\\d{4}),\\s*(\\d{1,2}:\\d{2})[\\u202f\\s]?(am|pm)?\\s*-\\s*(.*?):\\s(.+)",
+        re.IGNORECASE
+    )
 
     messages = []
     for line in chat_text.splitlines():
-        match1 = pattern1.match(line)
-        match2 = pattern2.match(line)
-        if match1:
-            date, time, am_pm, sender, msg = match1.groups()
-            timestamp = f"{date} {time} {am_pm or ''}"
-            messages.append((timestamp.strip(), sender.strip(), msg.strip()))
-        elif match2:
-            date, time, sender, msg = match2.groups()
-            timestamp = f"{date} {time}"
+        match = pattern.match(line.strip())
+        if match:
+            date, time, ampm, sender, msg = match.groups()
+            timestamp = f"{date} {time} {ampm or ''}"
             messages.append((timestamp.strip(), sender.strip(), msg.strip()))
 
     if not messages:
@@ -113,4 +102,9 @@ if uploaded_file:
 
         output = BytesIO()
         df.to_excel(output, index=False, engine='openpyxl')
-        st.download_button("📥 Download Excel", data=output.getvalue(), file_name="classified_messages.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        st.download_button(
+            "📥 Download Excel",
+            data=output.getvalue(),
+            file_name="classified_messages.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
