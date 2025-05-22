@@ -77,21 +77,21 @@ def extract_date(message):
     return "no date"
 
 # === Streamlit UI ===
-st.title("🏘️ WhatsApp Real Estate Classifier (Arabic & English Compatible)")
+st.title("🏘️ WhatsApp Real Estate Classifier (Arabic & English)")
 
 uploaded_file = st.file_uploader("📄 Upload WhatsApp Chat (.txt)", type="txt")
 
 if uploaded_file:
-    # Auto-detect encoding
     raw_bytes = uploaded_file.read()
     encoding_guess = chardet.detect(raw_bytes)
     chat_text = raw_bytes.decode(encoding_guess["encoding"], errors="ignore")
 
-    # Supported timestamp formats
+    # ✅ Updated patterns to support U+202F and multiple formats
     patterns = [
-        # Format: 15/06/2023, 5:44 pm - Name: Message
-        re.compile(r"(\d{1,2}/\d{1,2}/\d{4}), (\d{1,2}:\d{2})(?:\u202f|\s)?(am|pm)? - (.*?): (.+)", re.IGNORECASE),
-        # Format: [15/06/2023 14:45:00] Name: Message
+        # Format: 07/01/2025, 11:45 am - Sender: Message
+        re.compile(r"(\d{1,2}/\d{1,2}/\d{4}), (\d{1,2}:\d{2})[\u202f\s]?(am|pm)? - (.*?): (.+)", re.IGNORECASE),
+        
+        # Format: [07/01/2025 11:45:00] Sender: Message
         re.compile(r"\[(\d{1,2}/\d{1,2}/\d{4}) (\d{2}:\d{2}:\d{2})\] (.*?): (.+)")
     ]
 
@@ -108,11 +108,14 @@ if uploaded_file:
     else:
         if len(messages[0]) == 5:
             df = pd.DataFrame(messages, columns=["date", "time", "am_pm", "sender", "message"])
-            df["timestamp"] = pd.to_datetime(df["date"] + " " + df["time"] + " " + df["am_pm"].fillna(""),
-                                             format="%d/%m/%Y %I:%M %p", errors="coerce")
+            df["timestamp"] = pd.to_datetime(
+                df["date"] + " " + df["time"] + " " + df["am_pm"].fillna(""),
+                format="%d/%m/%Y %I:%M %p", errors="coerce")
         elif len(messages[0]) == 4:
             df = pd.DataFrame(messages, columns=["date", "time", "sender", "message"])
-            df["timestamp"] = pd.to_datetime(df["date"] + " " + df["time"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
+            df["timestamp"] = pd.to_datetime(
+                df["date"] + " " + df["time"],
+                format="%d/%m/%Y %H:%M:%S", errors="coerce")
 
         df["date_only"] = df["timestamp"].dt.date
         df["category"] = df["message"].apply(classify_message)
