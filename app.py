@@ -34,16 +34,11 @@ def classify_message(msg):
 
 def extract_unit_type(message):
     msg = message.lower()
-    if any(w in msg for w in ["hospital", "مستشفى"]):
-        return "hospital"
-    if any(w in msg for w in ["clinic", "عيادة"]):
-        return "clinic"
-    if any(w in msg for w in ["school", "مدرسة"]):
-        return "school"
-    if any(w in msg for w in ["studio", "استوديو"]):
-        return "studio"
-    if any(w in msg for w in ["villa", "فيلا"]):
-        return "villa"
+    if any(w in msg for w in ["hospital", "مستشفى"]): return "hospital"
+    if any(w in msg for w in ["clinic", "عيادة"]): return "clinic"
+    if any(w in msg for w in ["school", "مدرسة"]): return "school"
+    if any(w in msg for w in ["studio", "استوديو"]): return "studio"
+    if any(w in msg for w in ["villa", "فيلا"]): return "villa"
 
     word_to_num = {
         "one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
@@ -57,7 +52,6 @@ def extract_unit_type(message):
             return f"{digit} bedrooms"
         if re.search(rf"{digit}\s*(غرفة|غرف)", msg):
             return f"{digit} bedrooms"
-
     return "unknown"
 
 def extract_date(message):
@@ -77,7 +71,7 @@ def extract_date(message):
     return "no date"
 
 # === Streamlit UI ===
-st.title("🏘️ WhatsApp Real Estate Classifier (Arabic & English)")
+st.title("🏘️ WhatsApp Real Estate Classifier (Arabic & English Format)")
 
 uploaded_file = st.file_uploader("📄 Upload WhatsApp Chat (.txt)", type="txt")
 
@@ -86,37 +80,19 @@ if uploaded_file:
     encoding_guess = chardet.detect(raw_bytes)
     chat_text = raw_bytes.decode(encoding_guess["encoding"], errors="ignore")
 
-    # ✅ Updated patterns to support U+202F and multiple formats
-    patterns = [
-        # Format: 07/01/2025, 11:45 am - Sender: Message
-        re.compile(r"(\d{1,2}/\d{1,2}/\d{4}), (\d{1,2}:\d{2})[\u202f\s]?(am|pm)? - (.*?): (.+)", re.IGNORECASE),
-        
-        # Format: [07/01/2025 11:45:00] Sender: Message
-        re.compile(r"\[(\d{1,2}/\d{1,2}/\d{4}) (\d{2}:\d{2}:\d{2})\] (.*?): (.+)")
-    ]
+    # ✅ Specific regex for: 15/06/2023, 5:44 pm - Name: Message
+    pattern = re.compile(r"(\d{1,2}/\d{1,2}/\d{4}), (\d{1,2}:\d{2})[\u202f\s]?(am|pm)? - (.*?): (.+)", re.IGNORECASE)
 
-    messages = []
-    for line in chat_text.splitlines():
-        for pattern in patterns:
-            match = pattern.match(line)
-            if match:
-                messages.append(match.groups())
-                break
+    messages = [match.groups() for line in chat_text.splitlines() if (match := pattern.match(line))]
 
     if not messages:
-        st.warning("⚠️ No messages matched supported formats.")
+        st.warning("⚠️ No messages matched the expected format.")
     else:
-        if len(messages[0]) == 5:
-            df = pd.DataFrame(messages, columns=["date", "time", "am_pm", "sender", "message"])
-            df["timestamp"] = pd.to_datetime(
-                df["date"] + " " + df["time"] + " " + df["am_pm"].fillna(""),
-                format="%d/%m/%Y %I:%M %p", errors="coerce")
-        elif len(messages[0]) == 4:
-            df = pd.DataFrame(messages, columns=["date", "time", "sender", "message"])
-            df["timestamp"] = pd.to_datetime(
-                df["date"] + " " + df["time"],
-                format="%d/%m/%Y %H:%M:%S", errors="coerce")
-
+        df = pd.DataFrame(messages, columns=["date", "time", "am_pm", "sender", "message"])
+        df["timestamp"] = pd.to_datetime(
+            df["date"] + " " + df["time"] + " " + df["am_pm"].fillna(""),
+            format="%d/%m/%Y %I:%M %p", errors="coerce"
+        )
         df["date_only"] = df["timestamp"].dt.date
         df["category"] = df["message"].apply(classify_message)
         df["unit_type"] = df["message"].apply(extract_unit_type)
@@ -125,7 +101,6 @@ if uploaded_file:
         st.success("✅ Chat processed successfully!")
         st.dataframe(df[["timestamp", "sender", "message", "category", "unit_type", "date_mentioned"]].head(10))
 
-        # Excel export
         output = BytesIO()
         df.to_excel(output, index=False, engine='openpyxl')
         st.download_button(
