@@ -3,6 +3,7 @@ import pandas as pd
 import re
 from io import BytesIO
 from dateutil import parser
+import chardet
 
 # === Classifier functions ===
 def classify_message(msg):
@@ -74,17 +75,20 @@ def extract_date(message):
     return "no date"
 
 # === Streamlit UI ===
-st.title("🏘️ WhatsApp Real Estate Classifier – Arabic & English Support")
+st.title("🏘️ WhatsApp Real Estate Classifier (Arabic & English Support)")
 
-uploaded_file = st.file_uploader("Upload WhatsApp Chat (.txt)", type="txt")
+uploaded_file = st.file_uploader("📄 Upload WhatsApp Chat (.txt)", type="txt")
 
 if uploaded_file:
-    chat_text = uploaded_file.read().decode("utf-8")
+    # Detect encoding for Arabic/English files
+    raw_bytes = uploaded_file.read()
+    encoding_guess = chardet.detect(raw_bytes)
+    chat_text = raw_bytes.decode(encoding_guess["encoding"], errors="ignore")
 
-    # Multi-format timestamp regex
+    # WhatsApp timestamp formats
     patterns = [
-        re.compile(r"\[(\d{1,2}/\d{1,2}/\d{4}) (\d{2}:\d{2}:\d{2})\] (.*?): (.+)"),  # [dd/mm/yyyy hh:mm:ss]
-        re.compile(r"(\d{1,2}/\d{1,2}/\d{4}), (\d{1,2}:\d{2})\s?(am|pm)? - (.*?): (.+)", re.IGNORECASE),  # dd/mm/yyyy, hh:mm am/pm -
+        re.compile(r"\[(\d{1,2}/\d{1,2}/\d{4}) (\d{2}:\d{2}:\d{2})\] (.*?): (.+)"),  # [dd/mm/yyyy hh:mm:ss] Name: msg
+        re.compile(r"(\d{1,2}/\d{1,2}/\d{4}), (\d{1,2}:\d{2})\s?(am|pm)? - (.*?): (.+)", re.IGNORECASE),  # dd/mm/yyyy, hh:mm am/pm - Name: msg
     ]
 
     messages = []
@@ -96,9 +100,9 @@ if uploaded_file:
                 break
 
     if not messages:
-        st.warning("⚠️ No messages matched. Please check your file format.")
+        st.warning("⚠️ No messages matched supported formats.")
     else:
-        # Process based on structure
+        # Parse based on matched pattern length
         if len(messages[0]) == 4:
             df = pd.DataFrame(messages, columns=["date", "time", "sender", "message"])
             df["timestamp"] = pd.to_datetime(df["date"] + " " + df["time"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
@@ -115,7 +119,7 @@ if uploaded_file:
         st.success("✅ Chat processed successfully!")
         st.dataframe(df[["timestamp", "sender", "message", "category", "unit_type", "date_mentioned"]].head(10))
 
-        # Excel Export
+        # Download Excel file
         output = BytesIO()
         df.to_excel(output, index=False, engine='openpyxl')
         st.download_button(
