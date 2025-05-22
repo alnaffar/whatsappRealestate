@@ -43,16 +43,17 @@ def extract_unit_type(message):
 
 def extract_date(message):
     date_patterns = [
-        r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b",   # e.g. 12/06/2025 or 12-06-2025
-        r"\b\d{1,2}(st|nd|rd|th)?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[.,]?\s+\d{2,4}\b",  # e.g. 10th June 2025
-        r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{2,4}\b"  # e.g. June 12, 2025
+        r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b",  # 12/05/2025 or 12-05-2025
+        r"\b\d{1,2}(st|nd|rd|th)?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[,]?\s+\d{2,4}\b",  # 12th May 2025
+        r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{2,4}\b",  # May 12, 2025
+        r"\b(end of|mid|beginning of)?\s*(January|February|March|April|May|June|July|August|September|October|November|December)(\s+\d{4})?\b"
     ]
 
     for pattern in date_patterns:
         match = re.search(pattern, message, re.IGNORECASE)
         if match:
             try:
-                return str(parser.parse(match.group(0)).date())
+                return str(parser.parse(match.group(0), fuzzy=True).date())
             except:
                 continue
     return "no date"
@@ -64,27 +65,32 @@ uploaded_file = st.file_uploader("Upload WhatsApp Chat (.txt)", type="txt")
 
 if uploaded_file:
     chat_text = uploaded_file.read().decode("utf-8")
-    pattern = re.compile(r"(\d{2}/\d{2}/\d{4}, \d{1,2}:\d{2} ?[ap]m) - (.+?): (.+)")
+
+    # Updated pattern for your file format
+    pattern = re.compile(r"\[(\d{1,2}/\d{1,2}/\d{4}) (\d{2}:\d{2}:\d{2})\] (.*?): (.+)")
     messages = pattern.findall(chat_text)
-    df = pd.DataFrame(messages, columns=["timestamp", "sender", "message"])
 
-    df["timestamp"] = df["timestamp"].str.replace("\u202f", " ", regex=False)
-    df["timestamp"] = pd.to_datetime(df["timestamp"], format="%d/%m/%Y, %I:%M %p", errors="coerce")
-    df["date_only"] = df["timestamp"].dt.date
+    if not messages:
+        st.warning("⚠️ No messages matched the expected pattern. Please check the chat file format.")
+    else:
+        df = pd.DataFrame(messages, columns=["date", "time", "sender", "message"])
+        df["timestamp"] = pd.to_datetime(df["date"] + " " + df["time"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
+        df["date_only"] = df["timestamp"].dt.date
 
-    df["category"] = df["message"].apply(classify_message)
-    df["unit_type"] = df["message"].apply(extract_unit_type)
-    df["date_mentioned"] = df["message"].apply(extract_date)
+        # Apply classification and extractions
+        df["category"] = df["message"].apply(classify_message)
+        df["unit_type"] = df["message"].apply(extract_unit_type)
+        df["date_mentioned"] = df["message"].apply(extract_date)
 
-    st.success("✅ Chat processed successfully!")
-    st.dataframe(df[["timestamp", "sender", "message", "category", "unit_type", "date_mentioned"]].head(10))
+        st.success("✅ Chat processed successfully!")
+        st.dataframe(df[["timestamp", "sender", "message", "category", "unit_type", "date_mentioned"]].head(10))
 
-    # Download button
-    output = BytesIO()
-    df.to_excel(output, index=False, engine='openpyxl')
-    st.download_button(
-        label="📥 Download Excel File",
-        data=output.getvalue(),
-        file_name="classified_messages.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+        # Download Excel
+        output = BytesIO()
+        df.to_excel(output, index=False, engine='openpyxl')
+        st.download_button(
+            label="📥 Download Excel File",
+            data=output.getvalue(),
+            file_name="classified_messages.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
