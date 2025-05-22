@@ -45,8 +45,10 @@ def extract_unit_type(message):
     if any(w in msg for w in ["villa", "فيلا"]):
         return "villa"
 
-    word_to_num = {"one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
-                   "واحد": "1", "اثنين": "2", "ثلاث": "3", "أربع": "4", "خمس": "5"}
+    word_to_num = {
+        "one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
+        "واحد": "1", "اثنين": "2", "ثلاث": "3", "أربع": "4", "خمس": "5"
+    }
     for number in range(1, 6):
         if re.search(rf"\b{number}\s*(br|bhk|bed(room)?|bedrooms?)\b", msg):
             return f"{number} bedrooms"
@@ -75,20 +77,22 @@ def extract_date(message):
     return "no date"
 
 # === Streamlit UI ===
-st.title("🏘️ WhatsApp Real Estate Classifier (Arabic & English Support)")
+st.title("🏘️ WhatsApp Real Estate Classifier (Arabic & English Compatible)")
 
 uploaded_file = st.file_uploader("📄 Upload WhatsApp Chat (.txt)", type="txt")
 
 if uploaded_file:
-    # Detect encoding for Arabic/English files
+    # Auto-detect encoding
     raw_bytes = uploaded_file.read()
     encoding_guess = chardet.detect(raw_bytes)
     chat_text = raw_bytes.decode(encoding_guess["encoding"], errors="ignore")
 
-    # WhatsApp timestamp formats
+    # Supported timestamp formats
     patterns = [
-        re.compile(r"\[(\d{1,2}/\d{1,2}/\d{4}) (\d{2}:\d{2}:\d{2})\] (.*?): (.+)"),  # [dd/mm/yyyy hh:mm:ss] Name: msg
-        re.compile(r"(\d{1,2}/\d{1,2}/\d{4}), (\d{1,2}:\d{2})\s?(am|pm)? - (.*?): (.+)", re.IGNORECASE),  # dd/mm/yyyy, hh:mm am/pm - Name: msg
+        # Format: 15/06/2023, 5:44 pm - Name: Message
+        re.compile(r"(\d{1,2}/\d{1,2}/\d{4}), (\d{1,2}:\d{2})(?:\u202f|\s)?(am|pm)? - (.*?): (.+)", re.IGNORECASE),
+        # Format: [15/06/2023 14:45:00] Name: Message
+        re.compile(r"\[(\d{1,2}/\d{1,2}/\d{4}) (\d{2}:\d{2}:\d{2})\] (.*?): (.+)")
     ]
 
     messages = []
@@ -102,14 +106,13 @@ if uploaded_file:
     if not messages:
         st.warning("⚠️ No messages matched supported formats.")
     else:
-        # Parse based on matched pattern length
-        if len(messages[0]) == 4:
-            df = pd.DataFrame(messages, columns=["date", "time", "sender", "message"])
-            df["timestamp"] = pd.to_datetime(df["date"] + " " + df["time"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
-        elif len(messages[0]) == 5:
+        if len(messages[0]) == 5:
             df = pd.DataFrame(messages, columns=["date", "time", "am_pm", "sender", "message"])
             df["timestamp"] = pd.to_datetime(df["date"] + " " + df["time"] + " " + df["am_pm"].fillna(""),
                                              format="%d/%m/%Y %I:%M %p", errors="coerce")
+        elif len(messages[0]) == 4:
+            df = pd.DataFrame(messages, columns=["date", "time", "sender", "message"])
+            df["timestamp"] = pd.to_datetime(df["date"] + " " + df["time"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
 
         df["date_only"] = df["timestamp"].dt.date
         df["category"] = df["message"].apply(classify_message)
@@ -119,7 +122,7 @@ if uploaded_file:
         st.success("✅ Chat processed successfully!")
         st.dataframe(df[["timestamp", "sender", "message", "category", "unit_type", "date_mentioned"]].head(10))
 
-        # Download Excel file
+        # Excel export
         output = BytesIO()
         df.to_excel(output, index=False, engine='openpyxl')
         st.download_button(
