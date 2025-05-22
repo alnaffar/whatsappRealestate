@@ -1,0 +1,72 @@
+import streamlit as st
+import pandas as pd
+import re
+from io import BytesIO
+
+# === Classifier functions ===
+def classify_message(msg):
+    categories = {
+        "rent": ["for rent", "looking for rent", "available for rent", "rent price"],
+        "sell": ["for sale", "available for sale", "sale price", "selling price"],
+        "buyer": ["looking for", "need", "want to buy", "client ready", "cash buyer", "ready to sign", "looking for hot deal", "looking hot deal"],
+        "request": ["anyone have", "does anyone", "please pm", "dm me", "kindly dm", "share with me"]
+    }
+    tags = []
+    lower_msg = msg.lower()
+    for category, keywords in categories.items():
+        if any(keyword in lower_msg for keyword in keywords):
+            tags.append(category)
+    return ", ".join(tags) if tags else "uncategorized"
+
+def extract_unit_type(message):
+    msg = message.lower()
+    if "hospital" in msg:
+        return "hospital"
+    elif "clinic" in msg:
+        return "clinic"
+    elif "school" in msg:
+        return "school"
+    elif "studio" in msg:
+        return "studio"
+
+    word_to_num = {"one": "1", "two": "2", "three": "3", "four": "4", "five": "5"}
+    for number in range(1, 6):
+        if re.search(rf"\b{number}\s*(br|bhk|bed(room)?|bedrooms?)\b", msg):
+            return f"{number} bedrooms"
+    for word, digit in word_to_num.items():
+        if re.search(rf"\b{word}\s*(br|bhk|bed(room)?|bedrooms?)\b", msg):
+            return f"{digit} bedrooms"
+    if "villa" in msg:
+        return "villa"
+    return "unknown"
+
+# === Streamlit UI ===
+st.title("🏘️ WhatsApp Real Estate Classifier")
+
+uploaded_file = st.file_uploader("Upload WhatsApp Chat (.txt)", type="txt")
+
+if uploaded_file:
+    chat_text = uploaded_file.read().decode("utf-8")
+    pattern = re.compile(r"(\d{2}/\d{2}/\d{4}, \d{1,2}:\d{2} ?[ap]m) - (.+?): (.+)")
+    messages = pattern.findall(chat_text)
+    df = pd.DataFrame(messages, columns=["timestamp", "sender", "message"])
+
+    df["timestamp"] = df["timestamp"].str.replace("\u202f", " ", regex=False)
+    df["timestamp"] = pd.to_datetime(df["timestamp"], format="%d/%m/%Y, %I:%M %p", errors="coerce")
+    df["date_only"] = df["timestamp"].dt.date
+
+    df["category"] = df["message"].apply(classify_message)
+    df["unit_type"] = df["message"].apply(extract_unit_type)
+
+    st.success("✅ Chat processed successfully!")
+    st.dataframe(df.head(10))
+
+    # Download button
+    output = BytesIO()
+    df.to_excel(output, index=False, engine='openpyxl')
+    st.download_button(
+        label="📥 Download Excel File",
+        data=output.getvalue(),
+        file_name="classified_messages.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
