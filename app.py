@@ -28,7 +28,7 @@ def extract_unit_type(message):
     if "studio" in msg or "استوديو" in msg: return "studio"
     if "villa" in msg or "فيلا" in msg: return "villa"
     for n in range(1, 6):
-        if re.search(rf"\\b{n}\s*(br|bhk|bed(room)?|bedrooms?)\\b", msg): return f"{n} bedrooms"
+        if re.search(rf"\b{n}\s*(br|bhk|bed(room)?|bedrooms?)\b", msg): return f"{n} bedrooms"
     return "unknown"
 
 def extract_date(msg):
@@ -38,7 +38,7 @@ def extract_date(msg):
         return "no date"
 
 # === Streamlit UI ===
-st.title("🏘️ WhatsApp Real Estate Classifier - Multi Format")
+st.title("🏘️ WhatsApp Real Estate Classifier - Based on Actual Format")
 
 uploaded_file = st.file_uploader("📄 Upload WhatsApp Chat (.txt)", type="txt")
 
@@ -47,25 +47,19 @@ if uploaded_file:
     enc = chardet.detect(raw)['encoding']
     text = raw.decode(enc, errors='ignore')
 
-    # Covers formats like: [DD/MM/YYYY HH:MM:SS] or DD/MM/YYYY, HH:MM AM/PM -
-    pattern1 = re.compile(r"^\\[(\\d{1,2}/\\d{1,2}/\\d{4}) (\\d{2}:\\d{2}:\\d{2})\\] (.*?): (.+)")
-    pattern2 = re.compile(r"^(\\d{1,2}/\\d{1,2}/\\d{4}), (\\d{1,2}:\\d{2})[\\u202f\\s]?(am|pm)? - (.*?): (.+)", re.IGNORECASE)
+    # Adjusted for: DD/MM/YYYY, H:MM am/pm - Sender: Message
+    pattern = re.compile(r"^(\d{1,2}/\d{1,2}/\d{4}),\s*(\d{1,2}:\d{2})[\u202f\s]?(am|pm)?\s*-\s*(.*?):\s(.+)$", re.IGNORECASE)
 
     messages = []
     for line in text.splitlines():
-        match1 = pattern1.match(line.strip())
-        match2 = pattern2.match(line.strip())
-        if match1:
-            date, time, sender, msg = match1.groups()
-            timestamp = f"{date} {time}"
-            messages.append((timestamp, sender, msg))
-        elif match2:
-            date, time, ampm, sender, msg = match2.groups()
+        match = pattern.match(line.strip())
+        if match:
+            date, time, ampm, sender, msg = match.groups()
             timestamp = f"{date} {time} {ampm or ''}"
             messages.append((timestamp.strip(), sender.strip(), msg.strip()))
 
     if not messages:
-        st.warning("⚠️ No messages matched the expected formats.")
+        st.warning("⚠️ No messages matched the expected format: 'DD/MM/YYYY, HH:MM am/pm - Sender: Message'")
     else:
         df = pd.DataFrame(messages, columns=["timestamp", "sender", "message"])
         df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", dayfirst=True)
