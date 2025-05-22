@@ -7,10 +7,22 @@ from dateutil import parser
 # === Classifier functions ===
 def classify_message(msg):
     categories = {
-        "rent": ["for rent", "looking for rent", "available for rent", "rent price"],
-        "sell": ["for sale", "available for sale", "sale price", "selling price"],
-        "buyer": ["looking for", "need", "want to buy", "client ready", "cash buyer", "ready to sign", "looking for hot deal", "looking hot deal"],
-        "request": ["anyone have", "does anyone", "please pm", "dm me", "kindly dm", "share with me"]
+        "rent": [
+            "for rent", "available for rent", "looking for rent", "rent price",
+            "للإيجار", "متاح للإيجار", "ابحث عن إيجار", "سعر الإيجار"
+        ],
+        "sell": [
+            "for sale", "available for sale", "selling price", "sale price",
+            "للبيع", "متاح للبيع", "سعر البيع"
+        ],
+        "buyer": [
+            "looking for", "need", "want to buy", "client ready", "cash buyer", "ready to sign", "hot deal",
+            "أبحث عن", "محتاج", "عميل جاهز", "مشتري جاد", "صفقة ساخنة", "مستعد للتوقيع"
+        ],
+        "request": [
+            "anyone have", "does anyone", "please pm", "dm me", "kindly dm", "share with me",
+            "حد عنده", "حد يعرف", "الرجاء التواصل", "راسلني", "من فضلك أرسل"
+        ]
     }
     tags = []
     lower_msg = msg.lower()
@@ -21,31 +33,36 @@ def classify_message(msg):
 
 def extract_unit_type(message):
     msg = message.lower()
-    if "hospital" in msg:
+    if any(w in msg for w in ["hospital", "مستشفى"]):
         return "hospital"
-    elif "clinic" in msg:
+    if any(w in msg for w in ["clinic", "عيادة"]):
         return "clinic"
-    elif "school" in msg:
+    if any(w in msg for w in ["school", "مدرسة"]):
         return "school"
-    elif "studio" in msg:
+    if any(w in msg for w in ["studio", "استوديو"]):
         return "studio"
+    if any(w in msg for w in ["villa", "فيلا"]):
+        return "villa"
 
-    word_to_num = {"one": "1", "two": "2", "three": "3", "four": "4", "five": "5"}
+    word_to_num = {"one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
+                   "واحد": "1", "اثنين": "2", "ثلاث": "3", "أربع": "4", "خمس": "5"}
     for number in range(1, 6):
         if re.search(rf"\b{number}\s*(br|bhk|bed(room)?|bedrooms?)\b", msg):
             return f"{number} bedrooms"
     for word, digit in word_to_num.items():
         if re.search(rf"\b{word}\s*(br|bhk|bed(room)?|bedrooms?)\b", msg):
             return f"{digit} bedrooms"
-    if "villa" in msg:
-        return "villa"
+        if re.search(rf"{digit}\s*(غرفة|غرف)", msg):
+            return f"{digit} bedrooms"
+
     return "unknown"
 
 def extract_date(message):
     date_patterns = [
         r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b",
         r"\b\d{1,2}(st|nd|rd|th)?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[,]?\s+\d{2,4}\b",
-        r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{2,4}\b"
+        r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{2,4}\b",
+        r"\b\d{1,2}\s+(يناير|فبراير|مارس|أبريل|ابريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر)\b"
     ]
     for pattern in date_patterns:
         match = re.search(pattern, message, re.IGNORECASE)
@@ -57,21 +74,20 @@ def extract_date(message):
     return "no date"
 
 # === Streamlit UI ===
-st.title("🏘️ WhatsApp Real Estate Classifier – Multi Format")
+st.title("🏘️ WhatsApp Real Estate Classifier – Arabic & English Support")
 
 uploaded_file = st.file_uploader("Upload WhatsApp Chat (.txt)", type="txt")
 
 if uploaded_file:
     chat_text = uploaded_file.read().decode("utf-8")
 
-    # Define multiple timestamp regex formats
+    # Multi-format timestamp regex
     patterns = [
-        re.compile(r"\[(\d{1,2}/\d{1,2}/\d{4}) (\d{2}:\d{2}:\d{2})\] (.*?): (.+)"),  # [dd/mm/yyyy hh:mm:ss] Name: msg
-        re.compile(r"(\d{1,2}/\d{1,2}/\d{4}), (\d{1,2}:\d{2})\s?(am|pm)? - (.*?): (.+)", re.IGNORECASE),  # dd/mm/yyyy, hh:mm am - Name: msg
+        re.compile(r"\[(\d{1,2}/\d{1,2}/\d{4}) (\d{2}:\d{2}:\d{2})\] (.*?): (.+)"),  # [dd/mm/yyyy hh:mm:ss]
+        re.compile(r"(\d{1,2}/\d{1,2}/\d{4}), (\d{1,2}:\d{2})\s?(am|pm)? - (.*?): (.+)", re.IGNORECASE),  # dd/mm/yyyy, hh:mm am/pm -
     ]
 
     messages = []
-
     for line in chat_text.splitlines():
         for pattern in patterns:
             match = pattern.match(line)
@@ -80,19 +96,18 @@ if uploaded_file:
                 break
 
     if not messages:
-        st.warning("⚠️ No messages matched the expected patterns. Please check the file format.")
+        st.warning("⚠️ No messages matched. Please check your file format.")
     else:
-        # Handle different formats by length
+        # Process based on structure
         if len(messages[0]) == 4:
             df = pd.DataFrame(messages, columns=["date", "time", "sender", "message"])
             df["timestamp"] = pd.to_datetime(df["date"] + " " + df["time"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
         elif len(messages[0]) == 5:
             df = pd.DataFrame(messages, columns=["date", "time", "am_pm", "sender", "message"])
-            df["timestamp"] = pd.to_datetime(df["date"] + " " + df["time"] + " " + df["am_pm"].fillna(""), format="%d/%m/%Y %I:%M %p", errors="coerce")
+            df["timestamp"] = pd.to_datetime(df["date"] + " " + df["time"] + " " + df["am_pm"].fillna(""),
+                                             format="%d/%m/%Y %I:%M %p", errors="coerce")
 
         df["date_only"] = df["timestamp"].dt.date
-
-        # Apply extractions
         df["category"] = df["message"].apply(classify_message)
         df["unit_type"] = df["message"].apply(extract_unit_type)
         df["date_mentioned"] = df["message"].apply(extract_date)
