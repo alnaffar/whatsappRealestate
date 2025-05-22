@@ -5,61 +5,98 @@ from io import BytesIO
 from dateutil import parser
 import chardet
 
-# === Classifier Functions ===
+# === Classifier functions ===
 def classify_message(msg):
     categories = {
-        "rent": ["for rent", "للإيجار", "looking for rent", "available for rent", "rent price"],
-        "sell": ["for sale", "للبيع", "selling price", "available for sale"],
-        "buyer": ["want to buy", "cash buyer", "ready client", "hot deal", "مشتري", "looking hot deal"],
-        "request": ["please pm", "dm me", "anyone have", "kindly dm", "share with me", "حد عنده", "راسلني"]
+        "rent": [
+            "for rent", "available for rent", "looking for rent", "rent price",
+            "للإيجار", "متاح للإيجار", "ابحث عن إيجار", "سعر الإيجار"
+        ],
+        "sell": [
+            "for sale", "available for sale", "selling price", "sale price",
+            "للبيع", "متاح للبيع", "سعر البيع"
+        ],
+        "buyer": [
+            "looking for", "need", "want to buy", "client ready", "cash buyer", "ready to sign", "hot deal",
+            "أبحث عن", "محتاج", "عميل جاهز", "مشتري جاد", "صفقة ساخنة", "مستعد للتوقيع"
+        ],
+        "request": [
+            "anyone have", "does anyone", "please pm", "dm me", "kindly dm", "share with me",
+            "حد عنده", "حد يعرف", "الرجاء التواصل", "راسلني", "من فضلك أرسل"
+        ]
     }
-    msg = msg.lower()
-    tags = [cat for cat, keywords in categories.items() if any(k in msg for k in keywords)]
+    tags = []
+    lower_msg = msg.lower()
+    for category, keywords in categories.items():
+        if any(keyword in lower_msg for keyword in keywords):
+            tags.append(category)
     return ", ".join(tags) if tags else "uncategorized"
 
-def extract_unit_type(msg):
-    msg = msg.lower()
-    keywords = {
-        "hospital": "hospital", "clinic": "clinic", "school": "school", "studio": "studio", "فيلا": "villa", "villa": "villa"
+def extract_unit_type(message):
+    msg = message.lower()
+    if any(w in msg for w in ["hospital", "مستشفى"]): return "hospital"
+    if any(w in msg for w in ["clinic", "عيادة"]): return "clinic"
+    if any(w in msg for w in ["school", "مدرسة"]): return "school"
+    if any(w in msg for w in ["studio", "استوديو"]): return "studio"
+    if any(w in msg for w in ["villa", "فيلا"]): return "villa"
+
+    word_to_num = {
+        "one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
+        "واحد": "1", "اثنين": "2", "ثلاث": "3", "أربع": "4", "خمس": "5"
     }
-    for k, v in keywords.items():
-        if k in msg: return v
-    for n in range(1, 6):
-        if re.search(rf"\b{n}\s*(br|bhk|bed(room)?|bedrooms?)\b", msg): return f"{n} bedrooms"
+    for number in range(1, 6):
+        if re.search(rf"\\b{number}\\s*(br|bhk|bed(room)?|bedrooms?)\\b", msg):
+            return f"{number} bedrooms"
+    for word, digit in word_to_num.items():
+        if re.search(rf"\\b{word}\\s*(br|bhk|bed(room)?|bedrooms?)\\b", msg):
+            return f"{digit} bedrooms"
+        if re.search(rf"{digit}\\s*(غرفة|غرف)", msg):
+            return f"{digit} bedrooms"
+
     return "unknown"
 
 def extract_date(message):
-    match = re.search(r"\d{1,2}[/-]\d{1,2}[/-]\d{2,4}", message)
-    if match:
-        try:
-            return str(parser.parse(match.group(0), dayfirst=True).date())
-        except:
-            pass
+    date_patterns = [
+        r"\\b\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4}\\b",
+        r"\\b\\d{1,2}(st|nd|rd|th)?\\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[,]?\\s+\\d{2,4}\\b",
+        r"\\b(January|February|March|April|May|June|July|August|September|October|November|December)\\s+\\d{1,2},?\\s+\\d{2,4}\\b",
+        r"\\b\\d{1,2}\\s+(يناير|فبراير|مارس|أبريل|ابريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر)\\b"
+    ]
+    for pattern in date_patterns:
+        match = re.search(pattern, message, re.IGNORECASE)
+        if match:
+            try:
+                return str(parser.parse(match.group(0), fuzzy=True).date())
+            except:
+                continue
     return "no date"
 
-# === Streamlit App ===
-st.title("🏘️ WhatsApp Real Estate Classifier (Multi Format)")
+# === Streamlit UI ===
+st.title("🏘️ WhatsApp Real Estate Classifier (Arabic & English Support)")
 
 uploaded_file = st.file_uploader("📄 Upload WhatsApp Chat (.txt)", type="txt")
 
 if uploaded_file:
-    raw = uploaded_file.read()
-    enc = chardet.detect(raw)['encoding']
-    text = raw.decode(enc, errors='ignore')
+    raw_bytes = uploaded_file.read()
+    encoding_guess = chardet.detect(raw_bytes)
+    chat_text = raw_bytes.decode(encoding_guess["encoding"], errors="ignore")
 
-    pattern1 = re.compile(r"(\d{1,2}/\d{1,2}/\d{4}), (\d{1,2}:\d{2})[\u202f\s]?(am|pm)? - (.*?): (.+)", re.IGNORECASE)
-    pattern2 = re.compile(r"\[(\d{1,2}/\d{1,2}/\d{4}) (\d{2}:\d{2}:\d{2})\] (.*?): (.+)")
+    # Supported formats:
+    pattern1 = re.compile(r"(\\d{1,2}/\\d{1,2}/\\d{4}), (\\d{1,2}:\\d{2})[\\u202f\\s]?(am|pm)? - (.*?): (.+)", re.IGNORECASE)
+    pattern2 = re.compile(r"\\[(\\d{1,2}/\\d{1,2}/\\d{4}) (\\d{2}:\\d{2}:\\d{2})\\] (.*?): (.+)")
 
     messages = []
-    for line in text.splitlines():
-        if m := pattern1.match(line):
-            date, time, ampm, sender, msg = m.groups()
-            ts = f"{date} {time} {ampm or ''}"
-            messages.append((ts, sender, msg))
-        elif m := pattern2.match(line):
-            date, time, sender, msg = m.groups()
-            ts = f"{date} {time}"
-            messages.append((ts, sender, msg))
+    for line in chat_text.splitlines():
+        match1 = pattern1.match(line)
+        match2 = pattern2.match(line)
+        if match1:
+            date, time, am_pm, sender, msg = match1.groups()
+            timestamp = f"{date} {time} {am_pm or ''}"
+            messages.append((timestamp.strip(), sender.strip(), msg.strip()))
+        elif match2:
+            date, time, sender, msg = match2.groups()
+            timestamp = f"{date} {time}"
+            messages.append((timestamp.strip(), sender.strip(), msg.strip()))
 
     if not messages:
         st.warning("⚠️ No messages matched the expected formats.")
@@ -74,6 +111,6 @@ if uploaded_file:
         st.success("✅ Chat processed successfully!")
         st.dataframe(df.head(10))
 
-        out = BytesIO()
-        df.to_excel(out, index=False, engine='openpyxl')
-        st.download_button("📥 Download Excel", out.getvalue(), "classified_messages.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        output = BytesIO()
+        df.to_excel(output, index=False, engine='openpyxl')
+        st.download_button("📥 Download Excel", data=output.getvalue(), file_name="classified_messages.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
