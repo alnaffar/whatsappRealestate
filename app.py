@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import re
 from io import BytesIO
+from dateutil import parser
 
 # === Classifier functions ===
 def classify_message(msg):
@@ -40,6 +41,22 @@ def extract_unit_type(message):
         return "villa"
     return "unknown"
 
+def extract_date(message):
+    date_patterns = [
+        r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b",   # e.g. 12/06/2025 or 12-06-2025
+        r"\b\d{1,2}(st|nd|rd|th)?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[.,]?\s+\d{2,4}\b",  # e.g. 10th June 2025
+        r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{2,4}\b"  # e.g. June 12, 2025
+    ]
+
+    for pattern in date_patterns:
+        match = re.search(pattern, message, re.IGNORECASE)
+        if match:
+            try:
+                return str(parser.parse(match.group(0)).date())
+            except:
+                continue
+    return "no date"
+
 # === Streamlit UI ===
 st.title("🏘️ WhatsApp Real Estate Classifier")
 
@@ -51,23 +68,20 @@ if uploaded_file:
     messages = pattern.findall(chat_text)
     df = pd.DataFrame(messages, columns=["timestamp", "sender", "message"])
 
-    # Clean and convert timestamps
     df["timestamp"] = df["timestamp"].str.replace("\u202f", " ", regex=False)
     df["timestamp"] = pd.to_datetime(df["timestamp"], format="%d/%m/%Y, %I:%M %p", errors="coerce")
     df["date_only"] = df["timestamp"].dt.date
 
-    # Apply classifications
     df["category"] = df["message"].apply(classify_message)
     df["unit_type"] = df["message"].apply(extract_unit_type)
+    df["date_mentioned"] = df["message"].apply(extract_date)
 
-    # Show summary
-    st.success(f"✅ Chat processed successfully! Total messages: {len(df)}")
-    st.dataframe(df.head(10))  # Preview only first 10
+    st.success("✅ Chat processed successfully!")
+    st.dataframe(df[["timestamp", "sender", "message", "category", "unit_type", "date_mentioned"]].head(10))
 
-    # Export to Excel (all rows)
+    # Download button
     output = BytesIO()
     df.to_excel(output, index=False, engine='openpyxl')
-
     st.download_button(
         label="📥 Download Excel File",
         data=output.getvalue(),
