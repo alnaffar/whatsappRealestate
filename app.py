@@ -37,9 +37,42 @@ def extract_date(msg):
     except:
         return "no date"
 
+# === Message Parsing with Multiple Format Support ===
+def parse_chat_lines(text):
+    pattern_dash = re.compile(
+        r"^(\d{1,2}/\d{1,2}/\d{4})[, ]\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*[\u202f\s]?(am|pm)?\s*[-–—]\s*(.*?):\s(.+)$",
+        re.IGNORECASE
+    )
+    pattern_bracket = re.compile(
+        r"^\[(\d{1,2}/\d{1,2}/\d{4})[ ,]*(\d{1,2}:\d{2}(?::\d{2})?)\]\s*(.*?):\s(.+)$",
+        re.IGNORECASE
+    )
+
+    messages = []
+    for line in text.splitlines():
+        line = line.strip()
+        match1 = pattern_dash.match(line)
+        match2 = pattern_bracket.match(line)
+
+        if match1:
+            date, time, ampm, sender, msg = match1.groups()
+            timestamp_str = f"{date} {time} {ampm or ''}"
+        elif match2:
+            date, time, sender, msg = match2.groups()
+            timestamp_str = f"{date} {time}"
+        else:
+            continue
+
+        try:
+            timestamp = parser.parse(timestamp_str, fuzzy=True, dayfirst=True)
+            messages.append((str(timestamp), sender.strip(), msg.strip()))
+        except Exception:
+            continue
+    return messages
+
 # === Streamlit App UI ===
 st.set_page_config(page_title="WhatsApp Real Estate Classifier", layout="wide")
-st.title("🏘️ WhatsApp Real Estate Classifier")
+st.title("🏘️ WhatsApp Real Estate Classifier - Multi Format Support")
 
 uploaded_file = st.file_uploader("📄 Upload WhatsApp Chat (.txt)", type="txt")
 
@@ -48,24 +81,10 @@ if uploaded_file:
     enc = chardet.detect(raw)['encoding']
     text = raw.decode(enc, errors='ignore').replace("â€¯", " ").replace("  ", " ")
 
-    pattern = re.compile(
-        r"^(\d{1,2}/\d{1,2}/\d{4})[, ]\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*(am|pm)?\s*[-–—]\s*(.*?):\s(.+)$",
-        re.IGNORECASE
-    )
-
-    messages = []
-    for line in text.splitlines():
-        match = pattern.match(line.strip())
-        if match:
-            date, time, ampm, sender, msg = match.groups()
-            try:
-                timestamp = parser.parse(f"{date} {time} {ampm or ''}", fuzzy=True, dayfirst=True)
-            except:
-                continue
-            messages.append((str(timestamp), sender.strip(), msg.strip()))
+    messages = parse_chat_lines(text)
 
     if not messages:
-        st.warning("⚠️ No messages matched the expected format.")
+        st.warning("⚠️ No messages matched supported formats.")
     else:
         df = pd.DataFrame(messages, columns=["timestamp", "sender", "message"])
         df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
@@ -74,10 +93,9 @@ if uploaded_file:
         df["unit_type"] = df["message"].apply(extract_unit_type)
         df["date_mentioned"] = df["message"].apply(extract_date)
 
-        st.success("✅ Chat parsed successfully!")
+        st.success(f"✅ {len(df)} messages parsed successfully!")
         st.dataframe(df.head(30), use_container_width=True)
 
-        # Excel download
         output = BytesIO()
         df.to_excel(output, index=False, engine='openpyxl')
         st.download_button(
