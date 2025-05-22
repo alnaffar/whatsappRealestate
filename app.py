@@ -51,19 +51,23 @@ if uploaded_file:
     messages = pattern.findall(chat_text)
     df = pd.DataFrame(messages, columns=["timestamp", "sender", "message"])
 
+    # Clean and convert timestamps
     df["timestamp"] = df["timestamp"].str.replace("\u202f", " ", regex=False)
     df["timestamp"] = pd.to_datetime(df["timestamp"], format="%d/%m/%Y, %I:%M %p", errors="coerce")
     df["date_only"] = df["timestamp"].dt.date
 
+    # Apply classifications
     df["category"] = df["message"].apply(classify_message)
     df["unit_type"] = df["message"].apply(extract_unit_type)
 
-    st.success("✅ Chat processed successfully!")
-    st.dataframe(df.head(10))
+    # Show summary
+    st.success(f"✅ Chat processed successfully! Total messages: {len(df)}")
+    st.dataframe(df.head(10))  # Preview only first 10
 
-    # Download button
+    # Export to Excel (all rows)
     output = BytesIO()
     df.to_excel(output, index=False, engine='openpyxl')
+
     st.download_button(
         label="📥 Download Excel File",
         data=output.getvalue(),
