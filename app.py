@@ -43,12 +43,10 @@ def extract_unit_type(message):
 
 def extract_date(message):
     date_patterns = [
-        r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b",  # 12/05/2025 or 12-05-2025
-        r"\b\d{1,2}(st|nd|rd|th)?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[,]?\s+\d{2,4}\b",  # 12th May 2025
-        r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{2,4}\b",  # May 12, 2025
-        r"\b(end of|mid|beginning of)?\s*(January|February|March|April|May|June|July|August|September|October|November|December)(\s+\d{4})?\b"
+        r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b",
+        r"\b\d{1,2}(st|nd|rd|th)?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[,]?\s+\d{2,4}\b",
+        r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{2,4}\b"
     ]
-
     for pattern in date_patterns:
         match = re.search(pattern, message, re.IGNORECASE)
         if match:
@@ -59,25 +57,42 @@ def extract_date(message):
     return "no date"
 
 # === Streamlit UI ===
-st.title("🏘️ WhatsApp Real Estate Classifier")
+st.title("🏘️ WhatsApp Real Estate Classifier – Multi Format")
 
 uploaded_file = st.file_uploader("Upload WhatsApp Chat (.txt)", type="txt")
 
 if uploaded_file:
     chat_text = uploaded_file.read().decode("utf-8")
 
-    # Updated pattern for your file format
-    pattern = re.compile(r"\[(\d{1,2}/\d{1,2}/\d{4}) (\d{2}:\d{2}:\d{2})\] (.*?): (.+)")
-    messages = pattern.findall(chat_text)
+    # Define multiple timestamp regex formats
+    patterns = [
+        re.compile(r"\[(\d{1,2}/\d{1,2}/\d{4}) (\d{2}:\d{2}:\d{2})\] (.*?): (.+)"),  # [dd/mm/yyyy hh:mm:ss] Name: msg
+        re.compile(r"(\d{1,2}/\d{1,2}/\d{4}), (\d{1,2}:\d{2})\s?(am|pm)? - (.*?): (.+)", re.IGNORECASE),  # dd/mm/yyyy, hh:mm am - Name: msg
+    ]
+
+    messages = []
+
+    for line in chat_text.splitlines():
+        for pattern in patterns:
+            match = pattern.match(line)
+            if match:
+                messages.append(match.groups())
+                break
 
     if not messages:
-        st.warning("⚠️ No messages matched the expected pattern. Please check the chat file format.")
+        st.warning("⚠️ No messages matched the expected patterns. Please check the file format.")
     else:
-        df = pd.DataFrame(messages, columns=["date", "time", "sender", "message"])
-        df["timestamp"] = pd.to_datetime(df["date"] + " " + df["time"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
+        # Handle different formats by length
+        if len(messages[0]) == 4:
+            df = pd.DataFrame(messages, columns=["date", "time", "sender", "message"])
+            df["timestamp"] = pd.to_datetime(df["date"] + " " + df["time"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
+        elif len(messages[0]) == 5:
+            df = pd.DataFrame(messages, columns=["date", "time", "am_pm", "sender", "message"])
+            df["timestamp"] = pd.to_datetime(df["date"] + " " + df["time"] + " " + df["am_pm"].fillna(""), format="%d/%m/%Y %I:%M %p", errors="coerce")
+
         df["date_only"] = df["timestamp"].dt.date
 
-        # Apply classification and extractions
+        # Apply extractions
         df["category"] = df["message"].apply(classify_message)
         df["unit_type"] = df["message"].apply(extract_unit_type)
         df["date_mentioned"] = df["message"].apply(extract_date)
@@ -85,7 +100,7 @@ if uploaded_file:
         st.success("✅ Chat processed successfully!")
         st.dataframe(df[["timestamp", "sender", "message", "category", "unit_type", "date_mentioned"]].head(10))
 
-        # Download Excel
+        # Excel Export
         output = BytesIO()
         df.to_excel(output, index=False, engine='openpyxl')
         st.download_button(
